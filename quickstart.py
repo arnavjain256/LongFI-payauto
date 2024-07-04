@@ -1,7 +1,5 @@
 import gspread
-from collections import defaultdict
 
-# Define credentials
 credentials = {
   "installed": {
     "client_id": "757406773741-rnk2g858gtqig4iqa1bgkdgcqafr0dfm.apps.googleusercontent.com",
@@ -13,7 +11,6 @@ credentials = {
     "redirect_uris": ["http://localhost"]
   }
 }
-
 gc, authorized_user = gspread.oauth_from_dict(credentials)
 
 

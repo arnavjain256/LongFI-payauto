@@ -17,6 +17,7 @@ credentials = {
 # Authorize the client
 gc, authorized_user = gspread.oauth_from_dict(credentials)
 
+
 # Open the source spreadsheet by URL or name
 source_spreadsheet_url = 'https://docs.google.com/spreadsheets/d/1EghS37A_8Nyw7hpWgzZS795-vK6ZAJEozCyapvaEml8/edit?gid=1421353283#gid=1421353283'
 source_sh = gc.open_by_url(source_spreadsheet_url)
