@@ -1,78 +1,119 @@
 import gspread
+from collections import defaultdict
 
-# Define credentials
+
 credentials = {
-  "installed": {
-    "client_id": "757406773741-rnk2g858gtqig4iqa1bgkdgcqafr0dfm.apps.googleusercontent.com",
-    "project_id": "paymenttool",
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_secret": "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",
-    "redirect_uris": ["http://localhost"]
-  }
+    "installed":{
+        "client_id":"897141788662-2u9ion3pugjoqj5tichb6qpene5g8bot.apps.googleusercontent.com",
+        "project_id":"payment-automation-428216",
+        "auth_uri":"https://accounts.google.com/o/oauth2/auth",
+        "token_uri":"https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs",
+        "client_secret":"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",
+        "redirect_uris":["http://localhost"]
+        }
 }
 
-# Authorize the client
 gc, authorized_user = gspread.oauth_from_dict(credentials)
 
-# Open the target spreadsheet
-sh = gc.open("mini automation test")
+
+sh = gc.open("Payment Automation Test")
+
 sh_wks = sh.sheet1
 
-# Open the source spreadsheet by URL
 sh1 = gc.open_by_url('https://docs.google.com/spreadsheets/d/12bxgz1snvoaxDfy0Lg8002YhaWWtQKOyfQWo33lVDUA/edit?gid=0#gid=0')
 
-# Get data from the source sheets
-cvs_data = sh1.sheet1.get("A1:BF812")
+sh1_wks1 = sh1.sheet1
+
+cvs_data = sh1_wks1.get("A1:BF812")
+
 sh1_wks2 = sh1.worksheet("Bonus Rewards - Dispersal")
+
 bonus_data = sh1_wks2.get("A1:BF812")
+
 sh1_wks3 = sh1.worksheet("Data Rewards - Dispersal")
+
 data_data = sh1_wks3.get("A1:BF812")
 
-# Update the target spreadsheet with the retrieved data
-sh_wks.update(range_name="A1", values=cvs_data)
+sh_wks.update(cvs_data, "A1")
+
 sh_wks2 = sh.worksheet("Bonus Rewards")
-sh_wks2.update(range_name="A1", values=bonus_data)
+
+sh_wks2.update(bonus_data, "A1")
+
 sh_wks3 = sh.worksheet("Data Rewards")
-sh_wks3.update(range_name="A1", values=data_data)
 
-print("Updated the main sheet, Bonus Rewards, and Data Rewards with source data.")
+sh_wks3.update(data_data, "A1")
 
-# Open the LongFi Xnet Rev Shares Database spreadsheet
-sh2 = gc.open("LongFi Xnet Rev Shares Database")
+sh_wks4 = sh.worksheet("Epoch Earnings")
 
-# Get data from the "XNET CVS Ledger" sheet
-xnet_cvs_ledger_data = sh2.worksheet('XNET CVS Ledger').get_all_values()
-print("Retrieved XNET CVS Ledger data from LongFi Xnet Rev Shares Database")
+start_cell = 'E3'
 
-# Convert the data to a dictionary for fast lookup
-lookup_dict = {}
-for row in xnet_cvs_ledger_data[1:]:
-    lookup_dict[row[2]] = row  # Assuming the Radio ID is in the third column (C)
+end_cell = 'BF812'
 
-# Function to perform VLOOKUP manually in Python
-def vlookup(lookup_value, lookup_dict, col_index):
-    if lookup_value in lookup_dict:
-        return lookup_dict[lookup_value][col_index - 1]
-    return None
+cell_range = sh_wks.range(f'{start_cell}:{end_cell}')
 
-# Determine the indices of the columns to update
-header_row = sh_wks.row_values(1)
-epoch_columns = {
-    'Epoch 14': header_row.index('Epoch 14') + 1,
-    'Epoch 15': header_row.index('Epoch 15') + 1,
-    'Epoch 16': header_row.index('Epoch 16') + 1
-}
+for cell in cell_range:
+    if cell.value.__contains__("-"):
+        cell.value = "0"
 
-# Update the target sheet with VLOOKUP results
-for row_idx in range(3, len(sh_wks.get_all_values()) + 1):
-    radio_id = sh_wks.cell(row_idx, 1).value  # Column A (Radio ID)
-    for epoch_name, col_idx in epoch_columns.items():
-        epoch_index = header_row.index(epoch_name) + 1
-        result = vlookup(radio_id, lookup_dict, epoch_index)
-        if result is not None:
-            sh_wks.update_cell(row_idx, col_idx, result)
-            print(f"Updated cell ({row_idx}, {col_idx}) with value {result}")
+sh_wks.update_cells(cell_range)
 
-print("Completed updating the target sheet with VLOOKUP results")
+cell_range2 = sh_wks2.range(f'{start_cell}:{end_cell}')
+
+for cell in cell_range2:
+    if cell.value.__contains__("-"):
+        cell.value = "0"
+
+sh_wks2.update_cells(cell_range2)
+
+cell_range3 = sh_wks3.range(f'{start_cell}:{end_cell}')
+
+for cell in cell_range3:
+    if cell.value.__contains__("-"):
+        cell.value = "0"
+
+sh_wks3.update_cells(cell_range3)
+
+
+sh_wks5 = sh.worksheet("Gateway Earnings")
+
+header_row = [header.strip() for header in sh_wks4.row_values(2)]  # Adjusted to row 2
+print("Trimmed Header row:", header_row)
+
+# Ensure that the header row contains the expected columns
+required_columns = ['Gateway', 'Radio ID']
+missing_columns = [col for col in required_columns if col not in header_row]
+
+if missing_columns:
+    raise ValueError(f"Missing columns in header row: {missing_columns}")
+
+# Get all data from the source sheet
+all_values = sh_wks4.get_all_values()
+
+# Create a dictionary to hold the aggregated data
+gateway_earnings = defaultdict(lambda: defaultdict(int))
+
+# Identify the columns
+gateway_idx = header_row.index('Gateway')
+epoch_columns = {header: idx for idx, header in enumerate(header_row) if 'Epoch' in header}
+
+# Aggregate earnings per gateway
+for row in all_values[2:]:  # Skip header row and row before
+    gateway = row[gateway_idx]
+    for epoch, idx in epoch_columns.items():
+        try:
+            earnings = int(row[idx].replace(',', ''))
+        except ValueError:
+            earnings = 0
+        gateway_earnings[gateway][epoch] += earnings
+
+# Prepare data for "Gateway Earnings" sheet
+gateway_earnings_data = [['Gateway'] + list(epoch_columns.keys())]
+for gateway, earnings in gateway_earnings.items():
+    row = [gateway] + [earnings[epoch] for epoch in epoch_columns.keys()]
+    gateway_earnings_data.append(row)
+
+# Update the "Gateway Earnings" sheet with the prepared data
+sh_wks5.update("A1", gateway_earnings_data)
+print("Updated Gateway Earnings sheet with aggregated results")
