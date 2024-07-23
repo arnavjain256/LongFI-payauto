@@ -1,5 +1,4 @@
 import gspread
-from collections import defaultdict
 
 credentials = {
   "installed": {
@@ -13,66 +12,57 @@ credentials = {
   }
 }
 
-
 gc, authorized_user = gspread.oauth_from_dict(credentials)
 print(type(gc))
 
-
+# Open the source and destination spreadsheets
 mini_automation_sh = gc.open("mini automation test")
-
-shares_wks = mini_automation_sh.add_worksheet(title="SharesLongFi", rows="1000", cols="26")
-
-
 longfi_db_sh = gc.open("LongFi Xnet Rev Shares Database")
 
+# Add new worksheet in the destination spreadsheet
+shares_wks = mini_automation_sh.add_worksheet(title="sharesMini", rows="1000", cols="26")
+
+# Get the source worksheet
 longfi_shares_wks = longfi_db_sh.worksheet("Shares")
-
-
 longfi_shares_data = longfi_shares_wks.get_all_values()
 
+# Define the columns to copy
+columns_to_copy = [
+    'Protocol', 'Equipment Identifier', 'Equipment Owner', 'Status',
+    'Participant', 'Participant Type', 'RevShareType', 'Rev Share',
+    'Cash Lease', 'Address', 'City', 'Token', 'Date Installed'
+]
+
+# Define the columns for epoch earnings
+epoch_columns_to_sum = ['Epoch 09-13'] + [f'Epoch {i}' for i in range(14, 41)]
+
+# Extract the headers and data
 shares_header = longfi_shares_data[0]
 shares_data = longfi_shares_data[1:]
 
+# Find the indices of the columns to copy
+indices_to_copy = [shares_header.index(col) for col in columns_to_copy]
+epoch_indices_to_sum = [shares_header.index(col) for col in epoch_columns_to_sum]
 
-print("Shares Header from LongFi Database:", shares_header)
+# Create the new header and data based on the selected columns
+new_shares_header = [shares_header[idx] for idx in indices_to_copy]
+new_shares_header.append('Total Sum')
 
-equipment_identifier_idx = shares_header.index('Equipment Identifier')
-rev_share_idx = shares_header.index('Rev Share')
+new_shares_data = []
 
-rev_share_dict = {}
 for row in shares_data:
-    try:
-        equipment_identifier = row[equipment_identifier_idx]
-        rev_share = float(row[rev_share_idx].strip('%')) / 100
-        rev_share_dict[equipment_identifier] = rev_share
-    except ValueError:
-        print(f"Non-numeric value in 'Rev Share' column: {row[rev_share_idx]} for row: {row}")
+    new_row = [row[idx] for idx in indices_to_copy]
+    total_sum = sum(
+        float(row[idx].replace(',', '')) 
+        for idx in epoch_indices_to_sum 
+        if row[idx] and row[idx] not in ['-', '#N/A']
+    )
+    new_row.append(total_sum)
+    new_shares_data.append(new_row)
 
-gateway_earnings_wks = mini_automation_sh.worksheet("Gateway Earnings")
+# Insert the new header at the beginning of the data
+new_shares_data.insert(0, new_shares_header)
 
-gateway_earnings_data = gateway_earnings_wks.get_all_values()
-
-gateway_header_row = gateway_earnings_data[0]
-gateway_earnings = gateway_earnings_data[1:]
-
-
-gateway_idx = gateway_header_row.index('Gateway')
-epoch_columns = {header: idx for idx, header in enumerate(gateway_header_row) if 'Epoch' in header}
-
-earnings_per_gateway = []
-
-for row in gateway_earnings:
-    gateway = row[gateway_idx]
-    rev_share = rev_share_dict.get(gateway, 0)
-    total_earnings = sum(float(row[epoch_columns[epoch]].replace(',', '')) for epoch in epoch_columns if row[epoch_columns[epoch]])
-    earnings = total_earnings * rev_share
-    earnings_per_gateway.append([gateway, rev_share, earnings])
-
-
-new_shares_header = ['Gateway', 'Rev Share', 'Earnings']
-new_shares_data = [new_shares_header] + earnings_per_gateway
-
-
+# Update the new worksheet with the selected columns and total sum
 shares_wks.update('A1', new_shares_data)
-print("Updated new Shares worksheet in 'mini automation test' with earnings per gateway")
-
+print("Updated new Shares worksheet in 'mini automation test' with selected columns and total sum from 'LongFi Xnet Rev Shares Database'")
