@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 # File paths
 file_path = 'MokenData.xlsx'
-output_file_path = 'JulyData_with_titles.csv'
+output_file_path = 'JulyData_with_titles_and_end_date.csv'
 webpage_url = 'https://explorer.moken.io/wallets/Fz85mw5jedQnzF4nDq8PfwqzXtsRETTcLHFjHNKSH9Xq?lat=17.063447747849768&lng=-96.72745154992164&zoom=12&layer=active-hotspots&filter=total'
 
 # Read the existing Excel file
@@ -58,12 +58,15 @@ for index, row in df.iterrows():
         response_data = response.json()
         for item in response_data:
             start_timestamp = item.get("startTimestamp")
+            end_timestamp = item.get("endTimestamp")
             start_datetime = datetime.fromtimestamp(start_timestamp).isoformat() if start_timestamp else None
+            end_datetime = datetime.fromtimestamp(end_timestamp).isoformat() if end_timestamp else None
 
             data.append({
                 "Title": address_title_map.get(address, 'No Title'),
                 "Address": address,
                 "startTimestamp": start_datetime,
+                "endTimestamp": end_datetime,
                 "dcSum": item.get("dcSum"),
                 "uploadBytesSum": item.get("uploadBytesSum"),
                 "downloadBytesSum": item.get("downloadBytesSum"),
@@ -74,6 +77,7 @@ for index, row in df.iterrows():
             "Title": address_title_map.get(address, 'No Title'),
             "Address": address,
             "startTimestamp": None,
+            "endTimestamp": None,
             "dcSum": None,
             "uploadBytesSum": None,
             "downloadBytesSum": None,
