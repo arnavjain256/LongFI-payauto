@@ -75,11 +75,26 @@ for cell in cell_range3:
 
 sh_wks3.update_cells(cell_range3)
 
+gateway_list = sh_wks4.col_values(3)
+
+for row, value in enumerate(gateway_list):
+    clean = value.strip()
+    if clean != value:
+        sh_wks4.update_cell(row + 1, 3, clean)
+
+
 
 sh_wks5 = sh.worksheet("Gateway Earnings")
 
-header_row = [header.strip() for header in sh_wks4.row_values(2)]  # Adjusted to row 2
-print("Trimmed Header row:", header_row)
+source_spreadsheet_url = 'https://docs.google.com/spreadsheets/d/1EghS37A_8Nyw7hpWgzZS795-vK6ZAJEozCyapvaEml8/edit?gid=1421353283#gid=1421353283'
+source_sh = gc.open_by_url(source_spreadsheet_url)
+
+# Specify the sheet within the spreadsheet
+source_sheet_name = 'Epoch Earnings'  # Replace with your actual sheet name
+source_sh_wks = source_sh.worksheet(source_sheet_name)
+
+header_row = [header.strip() for header in source_sh_wks.row_values(2)]  # Adjusted to row 2
+
 
 # Ensure that the header row contains the expected columns
 required_columns = ['Gateway', 'Radio ID']
@@ -89,7 +104,7 @@ if missing_columns:
     raise ValueError(f"Missing columns in header row: {missing_columns}")
 
 # Get all data from the source sheet
-all_values = sh_wks4.get_all_values()
+all_values = source_sh_wks.get_all_values()
 
 # Create a dictionary to hold the aggregated data
 gateway_earnings = defaultdict(lambda: defaultdict(int))
@@ -115,5 +130,28 @@ for gateway, earnings in gateway_earnings.items():
     gateway_earnings_data.append(row)
 
 # Update the "Gateway Earnings" sheet with the prepared data
-sh_wks5.update("A1", gateway_earnings_data)
+sh_wks5.update("A2", gateway_earnings_data)
 print("Updated Gateway Earnings sheet with aggregated results")
+
+val = list(range(2, 42))
+
+list_range = 'B1:AO1'
+
+sh_wks5.update(list_range, [val])
+
+shares = gc.open_by_url('https://docs.google.com/spreadsheets/d/1EghS37A_8Nyw7hpWgzZS795-vK6ZAJEozCyapvaEml8/edit?gid=0#gid=0')
+
+shares_longfiwks = shares.worksheet('Shares')
+
+#shares_protocol = shares_longfiwks.get("A1:K123")
+
+sh_shares = sh.worksheet("Shares")
+
+#sh_shares.update(shares_protocol, "A1")
+
+shares_epoch = shares_longfiwks.get("N1:BB1")
+
+sh_shares.update(shares_epoch, "N1")
+
+
+
