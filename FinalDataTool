@@ -1,0 +1,247 @@
+import os
+import requests
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+import json
+import smtplib
+from email.mime.text import MIMEText
+import time  
+
+
+api_key = 'truK64nJ2-Te-G04wZCf7mqtr4N5HmTon5VYL633jik'
+data_api_url = 'https://api.heliumgeek.com/v0/gateways/{}/mobile/data/sum?min_time=2024-08-01T00%3A00%3A00.000Z&max_time=2024-08-21T00%3A00%3A00.000Z&bucket=day'
+details_api_url = 'https://api.heliumgeek.com/v0/gateways/{}'
+
+# Set up headers
+headers = {
+    'x-api-key': api_key
+}
+
+session = requests.Session()
+retry = Retry(
+    total=5,
+    backoff_factor=1,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["HEAD", "GET", "OPTIONS"]
+)
+adapter = HTTPAdapter(max_retries=retry)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
+
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = Credentials.from_service_account_file('credentials.json', scopes=scope)
+client = gspread.authorize(creds)
+
+print("Available sheets:")
+for sheet in client.openall():
+    print(f"'{sheet.title}' (length: {len(sheet.title)})")
+
+try:
+    sheet = client.open("Hotspot").sheet1
+    print("Successfully opened the 'Hotspot' sheet")
+except gspread.SpreadsheetNotFound:
+    print("Spreadsheet 'Hotspot' not found. Please check the name and share permissions.")
+    exit()
+
+csv_file = 'rewards.csv'
+if not os.path.isfile(csv_file):
+    print(f"CSV file '{csv_file}' not found. Please check the file name and path.")
+    exit()
+
+# Check if the CSV file is empty
+if os.path.getsize(csv_file) == 0:
+    print(f"CSV file '{csv_file}' is empty. Please check the file content.")
+    exit()
+
+try:
+    hotspot_addresses = pd.read_csv(csv_file, skiprows=4)
+    if hotspot_addresses.empty:
+        print(f"CSV file '{csv_file}' is empty. Please check the file content.")
+        exit()
+except pd.errors.EmptyDataError:
+    print(f"CSV file '{csv_file}' has no columns to parse. Please check the file content.")
+    exit()
+
+print("DataFrame columns:", hotspot_addresses.columns.tolist())
+print("DataFrame head:\n", hotspot_addresses.head())
+
+collected_data = []
+
+header = ['ID', 'Address', 'Name', 'Epoch Number', 'Start Timestamp', 'End Timestamp', 'DC Sum', 'Upload Bytes Sum (GB)', 'Download Bytes Sum (GB)', 'Rewardable Bytes Sum (GB)', 'Latitude', 'Longitude', 'Status', 'Coordinates']
+collected_data.append(header)
+
+status_file = 'device_status.json'
+
+if os.path.exists(status_file):
+    with open(status_file, 'r') as f:
+        previous_statuses = json.load(f)
+else:
+    previous_statuses = {}
+
+def send_email_notification(address, name, old_status, new_status):
+    sender = 'mini@longfisolutions.com'
+    receiver = 'mini@longfisolutions.com'
+    subject = f"Device {name}({address}) Status Change Alert"
+    body = f"The device {name} with address {address} has changed status from {old_status} to {new_status}."
+
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = sender
+    msg['To'] = receiver
+
+    with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        server.starttls()
+        server.login(sender, 'jscp ofej yhmt rmnq')
+        server.sendmail(sender, receiver, msg.as_string())
+
+current_statuses = {}
+
+def get_gateway_details(gateway_address):
+    try:
+        response = session.get(details_api_url.format(gateway_address), headers=headers)
+        response.raise_for_status()
+        details = response.json()
+        
+        # Map the status to a binary value
+        status = details.get('statusString', 'Unknown')
+        status_value = 1 if status.lower() == 'active' else 0
+        
+        old_status = previous_statuses.get(gateway_address, 'Unknown')
+        print(f"Gateway {gateway_address}: old status = {old_status}, current status = {status}")
+        
+       
+        name = address_name_map.get(gateway_address, 'No Name')
+
+        if old_status != status and old_status == 'active' and status == 'inactive':
+            send_email_notification(gateway_address, name, old_status, status)
+            print(f"Notification sent for {gateway_address}: {old_status} -> {status}")
+  
+        current_statuses[gateway_address] = status
+        
+        return details, status_value  # Return binary status value
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to fetch details for {gateway_address}. Error: {e}")
+        return None, 0  # Default to inactive status (0)
+
+# Main loop to keep the script running continuously
+test_email_sent = False  # Track whether the test email has been sent
+
+while True:
+    # Fetch and parse the webpage content to get titles (names of hotspots)
+    webpage_url = 'https://explorer.moken.io/wallets/Fz85mw5jedQnzF4nDq8PfwqzXtsRETTcLHFjHNKSH9Xq?lat=17.063447747849768&lng=-96.72745154992164&zoom=12&layer=active-hotspots&filter=total'
+    response = requests.get(webpage_url)
+    if response.status_code != 200:
+        print(f"Failed to fetch the webpage. Status code: {response.status_code}")
+        exit()
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    # Define the selectors to extract addresses and names
+    address_selector = 'h2'
+    name_selector = 'h1'
+
+    # Dictionary to store address-name mapping
+    address_name_map = {}
+    addresses = soup.select(address_selector)
+
+    for address_elem in addresses:
+        address = address_elem.get_text(strip=True)
+        name_elem = address_elem.find_previous(name_selector)
+        name = name_elem.get_text(strip=True) if name_elem else 'No Name'
+        address_name_map[address] = name
+
+    epoch_start_date = datetime(2024, 8, 1)
+
+    # Conversion factor from bytes to gigabytes
+    BYTES_TO_GB = 1_073_741_824
+
+    # Iterate through each address and make the API request
+    row_id = 1
+    for index, row in hotspot_addresses.iterrows():
+        try:
+            address = row['Address']
+        except KeyError:
+            print("Column 'Address' not found in the CSV file. Please check the column names.")
+            exit()
+
+        # Get gateway details
+        gateway_details, status = get_gateway_details(address)
+        if not gateway_details:
+            continue
+        
+        lat = gateway_details.get('location', {}).get('lat', 'No Latitude')
+        lng = gateway_details.get('location', {}).get('lng', 'No Longitude')
+
+        # Combine latitude and longitude into a single string
+        coordinates = f"{lat}, {lng}"
+
+        # Get data summary
+        api_url = data_api_url.format(address)
+        try:
+            response = session.get(api_url, headers=headers)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to fetch data for {address}. Error: {e}")
+            continue
+
+        data = response.json()
+        print(f"Successfully fetched data for {address}")  # Summarize the success message
+        
+        # Print the API response for each address
+        print(f"API response for {address}: {data}")
+        
+        # Assuming the API returns a list of dictionaries, each representing a day
+        for entry in data:
+            start_timestamp = entry.get('startTimestamp', 0)
+            dc_sum = entry.get('dcSum', 0)
+            upload_bytes_sum = entry.get('uploadBytesSum', 0)
+            download_bytes_sum = entry.get('downloadBytesSum', 0)
+            rewardable_bytes_sum = entry.get('rewardableBytesSum', 0)
+
+            # Convert bytes to gigabytes
+            upload_bytes_sum_gb = upload_bytes_sum / BYTES_TO_GB
+            download_bytes_sum_gb = download_bytes_sum / BYTES_TO_GB
+            rewardable_bytes_sum_gb = rewardable_bytes_sum / BYTES_TO_GB
+
+            # Calculate the end timestamp as one day from the start timestamp
+            start_datetime = datetime.fromtimestamp(start_timestamp)
+            end_datetime = start_datetime + timedelta(days=1)  # 1 day
+
+            # Calculate the epoch number
+            epoch_number = (end_datetime - epoch_start_date).days + 1
+
+            start_datetime_iso = start_datetime.isoformat() if start_timestamp else None
+            end_datetime_iso = end_datetime.isoformat() if start_timestamp else None
+
+            name = address_name_map.get(address, 'No Name')
+            collected_data.append([row_id, address, name, epoch_number, start_datetime_iso, end_datetime_iso, dc_sum, upload_bytes_sum_gb, download_bytes_sum_gb, rewardable_bytes_sum_gb, lat, lng, status, coordinates])
+            row_id += 1
+
+    # Clear and update the Google Sheet
+    sheet.clear()
+    sheet.update('A1', collected_data)
+
+    # Save the current statuses
+    with open(status_file, 'w') as f:
+        json.dump(current_statuses, f)
+
+    # Send the test email only once after the first loop iteration
+    if not test_email_sent:
+        test_address = '1trSusedShTqrkW7HUxv9QtrjadcnnQEmTJFTdBLDkERUV...'  
+        test_name = 'mini test'  
+        old_status = 'active'
+        new_status = 'inactive'
+
+        send_email_notification(test_address, test_name, old_status, new_status)
+
+        print(f"Test email sent for {test_name} with address {test_address}.")
+        test_email_sent = True  # Set the flag to True to prevent future test emails
+
+    print("Data collection complete. The results have been saved to your Google Sheet.")
+
+    # Sleep for a specific interval before running again (e.g., 1 hour)
+    time.sleep(3600)  # Sleeps for 3600 seconds (1 hour) before the next iteration
